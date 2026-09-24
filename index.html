@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memorija</title>
+<meta name="description" content="Igra memorije s hrvatskim motivima: licitar, kravata, dalmatinac, maslina, tambura… Nađi sve parove u što manje poteza. Igra za jednog ili dvoje.">
+<meta name="theme-color" content="#120a33">
+<link rel="icon" href="zajednicko/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="zajednicko/apple-touch-icon.png">
+<link rel="stylesheet" href="zajednicko/igre.css?v=09b9727d">
+<style>
+  .izbor { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .izbor button { padding: 7px 15px; border-radius: 999px; border: 1.5px solid var(--crta); background: var(--plo); cursor: pointer; font-weight: 600; }
+  .izbor button[aria-pressed="true"] { background: var(--roza); color: #2a0020; border-color: var(--roza); }
+  .stol { --s: 4; display: grid; grid-template-columns: repeat(var(--s), 1fr); gap: 10px; width: min(100%, calc(var(--s) * 100px)); margin: 0 auto; perspective: 900px; }
+  .karta { aspect-ratio: 3 / 4; border: 0; padding: 0; background: none; cursor: pointer; position: relative; transform-style: preserve-3d; transition: transform .35s; }
+  .karta.otkrivena, .karta.nadjena { transform: rotateY(180deg); }
+  .karta > span { position: absolute; inset: 0; border-radius: 14px; backface-visibility: hidden; display: grid; place-items: center; box-shadow: 0 5px 0 #0007; }
+  /* lice/leđa se mijenjaju na pola okreta — ne oslanjamo se samo na backface-visibility */
+  .ledja { transition: opacity 0s .17s; }
+  .karta.otkrivena .ledja, .karta.nadjena .ledja { opacity: 0; }
+  .ledja { background: radial-gradient(circle at 30% 25%, #ff4bd8aa, transparent 55%), linear-gradient(150deg, #6a2bd1, #2a0f6e); border: 2px solid #ff4bd866; }
+  .ledja img { width: 46%; opacity: .9; filter: drop-shadow(0 2px 4px #0008); border-radius: 8px; }
+  .lice { transform: rotateY(180deg); background: linear-gradient(170deg, #fff, #f0e9ff); color: #1a0f3d; flex-direction: column; gap: 2px; align-content: center; border: 3px solid #fff; }
+  .lice b { font-size: clamp(26px, 7vw, 48px); line-height: 1; }
+  .lice img { width: 60%; border-radius: 8px; }
+  .lice small { font: 700 clamp(9.5px, 2.2vw, 13px)/1.1 'Fredoka', sans-serif; text-align: center; padding: 0 3px; }
+  .karta.nadjena .lice { border-color: var(--zelena); box-shadow: 0 0 18px #5dff9b88, 0 5px 0 #0007; }
+  .karta.nadjena.i2 .lice { border-color: var(--cijan); box-shadow: 0 0 18px #22e3ff88, 0 5px 0 #0007; }
+  .igraci { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .igraci .status.na-redu { border-color: var(--roza); box-shadow: 0 0 20px #ff4bd855; }
+</style>
+</head>
+<body data-igra="igra-memorija">
+<header class="ig-vrh"></header>
+<main class="ig-omot">
+  <section class="ig-naslov"><span class="znak"></span><div><h1>Memorija</h1><p>Okreni dvije kartice — ako su iste, ostaju otvorene. Nađi sve parove hrvatskih motiva u što manje poteza. Možete igrati i u dvoje, naizmjence.</p></div></section>
+
+  <div class="izbor" id="velicine"></div>
+  <div class="izbor" id="nacini">
+    <button type="button" data-n="1" aria-pressed="true">1 igrač</button>
+    <button type="button" data-n="2" aria-pressed="false">2 igrača</button>
+  </div>
+  <div class="stupci">
+    <div><div class="stol" id="stol"></div></div>
+    <aside style="display:flex;flex-direction:column;gap:16px">
+      <div class="statusi" id="statusSolo">
+        <div class="status"><small>Potezi</small><b id="potezi">0</b></div>
+        <div class="status"><small>Parovi</small><b id="parovi">0</b></div>
+        <div class="status"><small>Najmanje</small><b id="rek">–</b></div>
+      </div>
+      <div class="igraci" id="statusDvoje" hidden>
+        <div class="status" id="i1"><small>Igrač 1</small><b id="b1">0</b></div>
+        <div class="status" id="i2"><small>Igrač 2</small><b id="b2">0</b></div>
+      </div>
+      <button type="button" class="gumb veliki rozi" id="nova">Nova igra</button>
+      <div class="ploca kraj-igre" id="kraj" hidden></div>
+    </aside>
+  </div>
+</main>
+<footer class="ig-dno"></footer>
+<script src="zajednicko/igre.js?v=4689b224"></script>
+<script>
+'use strict';
+const { $, $$, zvuk, konfeti, rekord, promijesaj, ikona } = IG;
+const MOTIVI = [
+  ['❤️', 'Licitar'], ['👔', 'Kravata'], ['🐕', 'Dalmatinac'], ['🫒', 'Maslina'], ['🪕', 'Tambura'], ['⛵', 'Jedrilica'],
+  ['🪻', 'Lavanda'], ['🐟', 'Srdela'], ['🍇', 'Grožđe'], ['🐚', 'Školjka'], ['⚽', 'Vatreni'], ['🧀', 'Paški sir'],
+  ['🍄', 'Tartuf'], ['🖋️', 'Penkala'], ['⚡', 'Tesla'], ['LOGO', 'Šahovnica'],
+];
+const VELICINE = { '4 × 3': [4, 3], '4 × 4': [4, 4], '6 × 4': [6, 4], '6 × 5': [6, 5] };
+let velicina = '4 × 4', igraca = 1, karte, otkrivene, potezi, nadjeno, naRedu, bodovi, zakljucano, gotovo;
+
+function nova() {
+  const [s, r] = VELICINE[velicina], parova = s * r / 2;
+  karte = promijesaj(promijesaj(MOTIVI).slice(0, parova).flatMap(m => [m, m]));
+  otkrivene = []; potezi = 0; nadjeno = 0; naRedu = 1; bodovi = [0, 0]; zakljucano = false; gotovo = false;
+  const stol = $('#stol'); stol.style.setProperty('--s', s);
+  stol.innerHTML = karte.map(([e, n], i) => `<button type="button" class="karta" data-i="${i}" aria-label="Kartica ${i + 1}">
+    <span class="ledja"><img src="zajednicko/logo.png" alt=""></span>
+    <span class="lice">${e === 'LOGO' ? '<img src="zajednicko/logo.png" alt="">' : `<b>${e}</b>`}<small>${n}</small></span></button>`).join('');
+  $('#kraj').hidden = true;
+  $('#statusSolo').hidden = igraca === 2; $('#statusDvoje').hidden = igraca === 1;
+  osvjezi();
+}
+function osvjezi() {
+  $('#potezi').textContent = potezi; $('#parovi').textContent = `${nadjeno}/${karte.length / 2}`;
+  const r = rekord.uzmi(`igra-memorija-${velicina}`, null); $('#rek').textContent = r === null ? '–' : r;
+  $('#b1').textContent = bodovi[0]; $('#b2').textContent = bodovi[1];
+  $('#i1').classList.toggle('na-redu', naRedu === 1); $('#i2').classList.toggle('na-redu', naRedu === 2);
+}
+function okreni(el) {
+  const i = +el.dataset.i;
+  if (zakljucano || gotovo || otkrivene.includes(i) || el.classList.contains('nadjena')) return;
+  el.classList.add('otkrivena'); otkrivene.push(i); zvuk.klik();
+  if (otkrivene.length < 2) return;
+  potezi++;
+  const [a, b] = otkrivene;
+  if (karte[a][1] === karte[b][1]) {
+    nadjeno++; bodovi[naRedu - 1]++;
+    [a, b].forEach(k => { const x = $(`.karta[data-i="${k}"]`); x.classList.add('nadjena'); if (igraca === 2 && naRedu === 2) x.classList.add('i2'); });
+    otkrivene = []; zvuk.tocno(); osvjezi();
+    if (nadjeno === karte.length / 2) setTimeout(kraj, 450);
+  } else {
+    zakljucano = true; osvjezi();
+    setTimeout(() => {
+      [a, b].forEach(k => $(`.karta[data-i="${k}"]`).classList.remove('otkrivena'));
+      otkrivene = []; zakljucano = false;
+      if (igraca === 2) naRedu = naRedu === 1 ? 2 : 1;
+      osvjezi();
+    }, 850);
+  }
+}
+function kraj() {
+  gotovo = true;
+  const el = $('#kraj'); el.hidden = false;
+  if (igraca === 1) {
+    const novi = rekord.predlozi(potezi, { igra: `igra-memorija-${velicina}`, manjiBolji: true });
+    rekord.predlozi((rekord.uzmi() || 0) + 1);
+    el.innerHTML = `<h2>${novi ? 'Novi rekord!' : 'Sve pronađeno!'}</h2><p>${velicina} · ${potezi} ${IG.mn(potezi, 'potez', 'poteza', 'poteza')}</p>`;
+  } else {
+    const [x, y] = bodovi;
+    el.innerHTML = `<h2>${x === y ? 'Neriješeno!' : `Pobjeđuje igrač ${x > y ? 1 : 2}!`}</h2><p>${x} : ${y}</p>`;
+  }
+  osvjezi(); zvuk.pobjeda(); konfeti();
+}
+$('#stol').addEventListener('click', e => { const k = e.target.closest('.karta'); if (k) okreni(k); });
+$('#velicine').innerHTML = Object.keys(VELICINE).map(v => `<button type="button" data-v="${v}" aria-pressed="${v === velicina}">${v}</button>`).join('');
+$('#velicine').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; velicina = b.dataset.v; $$('#velicine button').forEach(x => x.setAttribute('aria-pressed', x === b)); zvuk.klik(); nova(); });
+$('#nacini').addEventListener('click', e => { const b = e.target.closest('[data-n]'); if (!b) return; igraca = +b.dataset.n; $$('#nacini button').forEach(x => x.setAttribute('aria-pressed', x === b)); zvuk.klik(); nova(); });
+$('#nova').innerHTML = `${ikona('osvjezi')} Nova igra`;
+$('#nova').onclick = () => { zvuk.klik(); nova(); };
+nova();
+</script>
+</body>
+</html>
